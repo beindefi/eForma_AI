@@ -1,0 +1,52 @@
+name: eformabot
+
+on:
+  schedule:
+    # Every 5 minutes — adjust as needed
+    # GitHub Actions minimum is 5 min; use a VPS if you need sub-5min
+    - cron: "*/5 * * * *"
+  workflow_dispatch:  # allow manual trigger from GitHub UI
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4  # safety: kill if it hangs before next cron fires
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          # Need write token to commit state.json back
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          HL_WALLET_ADDRESS: ${{ secrets.HL_WALLET_ADDRESS }}
+          HL_PRIVATE_KEY:    ${{ secrets.HL_PRIVATE_KEY }}
+          HL_TESTNET:        ${{ vars.HL_TESTNET }}            # set to "false" for mainnet
+          MAX_POSITION_USD:  ${{ vars.MAX_POSITION_USD }}      # default: 100
+          MAX_OPEN_POSITIONS: ${{ vars.MAX_OPEN_POSITIONS }}   # default: 3
+          MAX_DRAWDOWN_PCT:  ${{ vars.MAX_DRAWDOWN_PCT }}      # default: 5.0
+          FUNDING_ENTRY_THRESHOLD: ${{ vars.FUNDING_ENTRY_THRESHOLD }} # default: 0.05
+          FUNDING_EXIT_THRESHOLD:  ${{ vars.FUNDING_EXIT_THRESHOLD }}  # default: 0.01
+          TOP_N_COINS:       ${{ vars.TOP_N_COINS }}           # default: 5
+          STATE_FILE:        state.json
+        run: python main.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name  "eformabot"
+          git config user.email "eformabot@users.noreply.github.com"
+          git add state.json
+          # Only commit if state.json actually changed
+          git diff --staged --quiet || git commit -m "chore: state update [$(date -u +%H:%M:%S)]"
+          git push
